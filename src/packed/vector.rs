@@ -28,8 +28,6 @@ use core::{
 pub(crate) trait Vector:
     Copy + Debug + Send + Sync + UnwindSafe + RefUnwindSafe
 {
-    /// The number of bits in the vector.
-    const BITS: usize;
     /// The number of bytes in the vector. That is, this is the size of the
     /// vector in memory.
     const BYTES: usize;
@@ -317,6 +315,89 @@ pub(crate) trait FatVector: Vector {
     ) -> Option<T>;
 }
 
+#[cfg(target_abi = "polyasm")]
+mod polyasm {
+    use core::polyasm::vector as poly;
+
+    use super::Vector;
+
+    impl Vector for poly::I8x16 {
+        const BYTES: usize = 16;
+
+        #[inline(always)]
+        unsafe fn splat(byte: u8) -> poly::I8x16 {
+            poly::splat_i8x16(byte)
+        }
+
+        #[inline(always)]
+        unsafe fn load_unaligned(data: *const u8) -> poly::I8x16 {
+            poly::load_i8x16(data)
+        }
+
+        #[inline(always)]
+        unsafe fn is_zero(self) -> bool {
+            let cmp = self.cmpeq(Self::splat(0));
+            poly::bitmask_i8x16(cmp) == 0xFFFF
+        }
+
+        #[inline(always)]
+        unsafe fn cmpeq(self, vector2: Self) -> poly::I8x16 {
+            poly::eq_i8x16(self, vector2)
+        }
+
+        #[inline(always)]
+        unsafe fn and(self, vector2: Self) -> poly::I8x16 {
+            poly::and_i8x16(self, vector2)
+        }
+
+        #[inline(always)]
+        unsafe fn or(self, vector2: Self) -> poly::I8x16 {
+            poly::or_i8x16(self, vector2)
+        }
+
+        #[inline(always)]
+        unsafe fn shift_8bit_lane_right<const BITS: i32>(self) -> Self {
+            poly::shr_logical_i8x16(self, BITS as u32)
+        }
+
+        #[inline(always)]
+        unsafe fn shift_in_one_byte(self, vector2: Self) -> Self {
+            poly::shift_in_one_byte_i8x16(self, vector2)
+        }
+
+        #[inline(always)]
+        unsafe fn shift_in_two_bytes(self, vector2: Self) -> Self {
+            poly::shift_in_two_bytes_i8x16(self, vector2)
+        }
+
+        #[inline(always)]
+        unsafe fn shift_in_three_bytes(self, vector2: Self) -> Self {
+            poly::shift_in_three_bytes_i8x16(self, vector2)
+        }
+
+        #[inline(always)]
+        unsafe fn shuffle_bytes(self, indices: Self) -> Self {
+            poly::swizzle_i8x16(self, indices)
+        }
+
+        #[inline(always)]
+        unsafe fn for_each_64bit_lane<T>(
+            self,
+            mut f: impl FnMut(usize, u64) -> Option<T>,
+        ) -> Option<T> {
+            let mut lanes = [0u64; 2];
+            poly::store_i8x16(lanes.as_mut_ptr().cast::<u8>(), self);
+            if let Some(t) = f(0, lanes[0]) {
+                return Some(t);
+            }
+            if let Some(t) = f(1, lanes[1]) {
+                return Some(t);
+            }
+            None
+        }
+    }
+}
+
 #[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
 mod x86_64_ssse3 {
     use core::arch::x86_64::*;
@@ -326,7 +407,6 @@ mod x86_64_ssse3 {
     use super::Vector;
 
     impl Vector for __m128i {
-        const BITS: usize = 128;
         const BYTES: usize = 16;
 
         #[inline(always)]
@@ -419,7 +499,6 @@ mod x86_64_avx2 {
     use super::{FatVector, Vector};
 
     impl Vector for __m256i {
-        const BITS: usize = 256;
         const BYTES: usize = 32;
 
         #[inline(always)]
@@ -607,7 +686,6 @@ mod aarch64_neon {
     use super::Vector;
 
     impl Vector for uint8x16_t {
-        const BITS: usize = 128;
         const BYTES: usize = 16;
 
         #[inline(always)]

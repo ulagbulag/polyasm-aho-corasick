@@ -211,7 +211,7 @@ impl SmallIndex {
     pub fn from_ne_bytes(
         bytes: [u8; 4],
     ) -> Result<SmallIndex, SmallIndexError> {
-        let id = u32::from_ne_bytes(bytes);
+        let id = u32_from_bytes(bytes);
         if id > SmallIndex::MAX.as_u32() {
             return Err(SmallIndexError { attempted: u64::from(id) });
         }
@@ -225,15 +225,25 @@ impl SmallIndex {
     /// check whether the decoded integer is representable as a small index.
     #[inline]
     pub fn from_ne_bytes_unchecked(bytes: [u8; 4]) -> SmallIndex {
-        SmallIndex::new_unchecked(u32::from_ne_bytes(bytes).as_usize())
+        SmallIndex::new_unchecked(u32_from_bytes(bytes).as_usize())
     }
 
     /// Return the underlying small index integer as raw bytes in native endian
     /// format.
     #[inline]
     pub fn to_ne_bytes(&self) -> [u8; 4] {
-        self.0.to_ne_bytes()
+        u32_to_bytes(self.0)
     }
+}
+
+#[inline]
+pub(crate) fn u32_from_bytes(bytes: [u8; 4]) -> u32 {
+    u32::from_ne_bytes(bytes)
+}
+
+#[inline]
+pub(crate) fn u32_to_bytes(value: u32) -> [u8; 4] {
+    value.to_ne_bytes()
 }
 
 impl<T> core::ops::Index<SmallIndex> for [T] {

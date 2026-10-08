@@ -104,7 +104,7 @@ impl Builder {
         // fix, but at the time of writing (2023/09/18), I actually do not know
         // how to test this code on a big-endian target. So for now, we're
         // conservative and just bail out.
-        if !cfg!(target_endian = "little") {
+        if !cfg!(any(target_abi = "polyasm", target_endian = "little")) {
             debug!("skipping Teddy because target isn't little endian");
             return None;
         }
@@ -303,7 +303,70 @@ impl Builder {
                 }
             }
         }
+        #[cfg(target_abi = "polyasm")]
+        {
+            use self::polyasm::SlimPolyasm;
+
+            let mask_len = core::cmp::min(4, patterns.minimum_len());
+            if self.only_256bit == Some(true) {
+                debug!(
+                    "skipping Teddy because 256-bits were demanded \
+                     but unavailable"
+                );
+                return None;
+            }
+            if self.only_fat == Some(true) {
+                debug!(
+                    "skipping Teddy because fat was demanded but unavailable"
+                );
+                return None;
+            }
+            match mask_len {
+                1 => {
+                    if patlimit && patterns.len() > 16 {
+                        debug!(
+                            "skipping Teddy (mask len: 1) because there are \
+                             too many patterns",
+                        );
+                        return None;
+                    }
+                    debug!("Teddy choice: 128-bit slim, 1 byte");
+                    SlimPolyasm::<1>::new(&patterns)
+                }
+                2 => {
+                    if patlimit && patterns.len() > 32 {
+                        debug!(
+                            "skipping Teddy (mask len: 2) because there are \
+                             too many patterns",
+                        );
+                        return None;
+                    }
+                    debug!("Teddy choice: 128-bit slim, 2 bytes");
+                    SlimPolyasm::<2>::new(&patterns)
+                }
+                3 => {
+                    if patlimit && patterns.len() > 48 {
+                        debug!(
+                            "skipping Teddy (mask len: 3) because there are \
+                             too many patterns",
+                        );
+                        return None;
+                    }
+                    debug!("Teddy choice: 128-bit slim, 3 bytes");
+                    SlimPolyasm::<3>::new(&patterns)
+                }
+                4 => {
+                    debug!("Teddy choice: 128-bit slim, 4 bytes");
+                    SlimPolyasm::<4>::new(&patterns)
+                }
+                _ => {
+                    debug!("no supported Teddy configuration found");
+                    None
+                }
+            }
+        }
         #[cfg(not(any(
+            target_abi = "polyasm",
             all(target_arch = "x86_64", target_feature = "sse2"),
             all(
                 target_arch = "aarch64",
@@ -789,4 +852,72 @@ mod aarch64 {
     slim_neon!(2);
     slim_neon!(3);
     slim_neon!(4);
+}
+
+#[cfg(target_abi = "polyasm")]
+mod polyasm {
+    use core::polyasm::vector::I8x16;
+
+    use alloc::sync::Arc;
+
+    use crate::packed::{
+        pattern::Patterns,
+        teddy::generic::{self, Match},
+    };
+
+    use super::{Searcher, SearcherT};
+
+    #[derive(Clone, Debug)]
+    pub(super) struct SlimPolyasm<const BYTES: usize> {
+        slim128: generic::Slim<I8x16, BYTES>,
+    }
+
+    macro_rules! slim_polyasm {
+        ($len:expr) => {
+            impl SlimPolyasm<$len> {
+                /// Creates a new searcher using "slim" Teddy with PolyASM's
+                /// own 128-bit vectors.
+                pub(super) fn new(
+                    patterns: &Arc<Patterns>,
+                ) -> Option<Searcher> {
+                    Some(unsafe {
+                        SlimPolyasm::<$len>::new_unchecked(patterns)
+                    })
+                }
+
+                /// Creates a new searcher without checking anything, because
+                /// PolyASM publishes its vectors unconditionally.
+                ///
+                /// # Safety
+                ///
+                /// The vector width is part of the target, so there is nothing
+                /// left for a caller to guarantee.
+                unsafe fn new_unchecked(patterns: &Arc<Patterns>) -> Searcher {
+                    let slim128 = generic::Slim::<I8x16, $len>::new(
+                        Arc::clone(patterns),
+                    );
+                    let memory_usage = slim128.memory_usage();
+                    let minimum_len = slim128.minimum_len();
+                    let imp = Arc::new(SlimPolyasm { slim128 });
+                    Searcher { imp, memory_usage, minimum_len }
+                }
+            }
+
+            impl SearcherT for SlimPolyasm<$len> {
+                #[inline]
+                unsafe fn find(
+                    &self,
+                    start: *const u8,
+                    end: *const u8,
+                ) -> Option<Match> {
+                    self.slim128.find(start, end)
+                }
+            }
+        };
+    }
+
+    slim_polyasm!(1);
+    slim_polyasm!(2);
+    slim_polyasm!(3);
+    slim_polyasm!(4);
 }

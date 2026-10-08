@@ -17,7 +17,10 @@ use crate::{
         error::{BuildError, MatchError},
         int::{Usize, U16, U32},
         prefilter::Prefilter,
-        primitives::{IteratorIndexExt, PatternID, SmallIndex, StateID},
+        primitives::{
+            u32_from_bytes, u32_to_bytes, IteratorIndexExt, PatternID,
+            SmallIndex, StateID,
+        },
         search::{Anchored, MatchKind},
         special::Special,
     },
@@ -220,7 +223,7 @@ unsafe impl Automaton for NFA {
                 for (i, &chunk) in
                     repr[o + 2..][..classes_len].iter().enumerate()
                 {
-                    let classes = chunk.to_ne_bytes();
+                    let classes = u32_to_bytes(chunk);
                     if classes[0] == class {
                         return u32tosid(repr[trans_offset + i * 4]);
                     }
@@ -757,7 +760,7 @@ impl<'a> State<'a> {
             chunk[len] = classes.get(t.byte());
             len += 1;
             if len == 4 {
-                dst.push(u32::from_ne_bytes(chunk));
+                dst.push(u32_from_bytes(chunk));
                 chunk = [0; 4];
                 len = 0;
             }
@@ -775,7 +778,7 @@ impl<'a> State<'a> {
                 chunk[len] = repeat;
                 len += 1;
             }
-            dst.push(u32::from_ne_bytes(chunk));
+            dst.push(u32_from_bytes(chunk));
         }
         for t in nnfa.iter_trans(oldsid) {
             dst.push(t.next().as_u32());
@@ -829,7 +832,7 @@ impl<'a> State<'a> {
                     return None;
                 }
                 let chunk = classes[i / 4];
-                let class = chunk.to_ne_bytes()[i % 4];
+                let class = u32_to_bytes(chunk)[i % 4];
                 let next = StateID::from_u32_unchecked(nexts[i]);
                 i += 1;
                 Some((class, next))
@@ -1127,7 +1130,7 @@ mod tests {
         }
 
         let bytes: [u8; 4] = [b'1', b'A', b'a', b'z'];
-        let chunk = u32::from_ne_bytes(bytes);
+        let chunk = u32_from_bytes(bytes);
 
         let needle = broadcast(b'1');
         assert_eq!(0, index_of(has_zero_byte(needle ^ chunk)));
