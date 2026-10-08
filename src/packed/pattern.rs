@@ -364,55 +364,66 @@ fn is_equal(x: &[u8], y: &[u8]) -> bool {
 /// for `y` and `y+n`.
 /// * The distance being in bounds must not rely on "wrapping around" the
 /// address space.
+#[cfg_attr(target_arch = "polyasm", allow(unused_mut))]
 #[inline(always)]
 unsafe fn is_equal_raw(mut x: *const u8, mut y: *const u8, n: usize) -> bool {
-    // If we don't have enough bytes to do 4-byte at a time loads, then
-    // handle each possible length specially. Note that I used to have a
-    // byte-at-a-time loop here and that turned out to be quite a bit slower
-    // for the memmem/pathological/defeat-simple-vector-alphabet benchmark.
-    if n < 4 {
-        return match n {
-            0 => true,
-            1 => x.read() == y.read(),
-            2 => {
-                x.cast::<u16>().read_unaligned()
-                    == y.cast::<u16>().read_unaligned()
-            }
-            // I also tried copy_nonoverlapping here and it looks like the
-            // codegen is the same.
-            3 => x.cast::<[u8; 3]>().read() == y.cast::<[u8; 3]>().read(),
-            _ => unreachable!(),
-        };
-    }
-    // When we have 4 or more bytes to compare, then proceed in chunks of 4 at
-    // a time using unaligned loads.
-    //
-    // Also, why do 4 byte loads instead of, say, 8 byte loads? The reason is
-    // that this particular version of memcmp is likely to be called with tiny
-    // needles. That means that if we do 8 byte loads, then a higher proportion
-    // of memcmp calls will use the slower variant above. With that said, this
-    // is a hypothesis and is only loosely supported by benchmarks. There's
-    // likely some improvement that could be made here. The main thing here
-    // though is to optimize for latency, not throughput.
-
-    // SAFETY: The caller is responsible for ensuring the pointers we get are
-    // valid and readable for at least `n` bytes. We also do unaligned loads,
-    // so there's no need to ensure we're aligned. (This is justified by this
-    // routine being specifically for short strings.)
-    let xend = x.add(n.wrapping_sub(4));
-    let yend = y.add(n.wrapping_sub(4));
-    while x < xend {
-        let vx = x.cast::<u32>().read_unaligned();
-        let vy = y.cast::<u32>().read_unaligned();
-        if vx != vy {
-            return false;
+    cfg_select! {
+        target_arch = "polyasm" => {
+            polyasm_plugin_memory::__compare(x, y, n) == 0
         }
-        x = x.add(4);
-        y = y.add(4);
+        _ => {
+            // If we don't have enough bytes to do 4-byte at a time loads, then
+            // handle each possible length specially. Note that I used to have a
+            // byte-at-a-time loop here and that turned out to be quite a bit slower
+            // for the memmem/pathological/defeat-simple-vector-alphabet benchmark.
+            if n < 4 {
+                return match n {
+                    0 => true,
+                    1 => x.read() == y.read(),
+                    2 => {
+                        x.cast::<u16>().read_unaligned()
+                            == y.cast::<u16>().read_unaligned()
+                    }
+                    // I also tried copy_nonoverlapping here and it looks like the
+                    // codegen is the same.
+                    3 => {
+                        x.cast::<[u8; 3]>().read()
+                            == y.cast::<[u8; 3]>().read()
+                    }
+                    _ => unreachable!(),
+                };
+            }
+            // When we have 4 or more bytes to compare, then proceed in chunks of 4 at
+            // a time using unaligned loads.
+            //
+            // Also, why do 4 byte loads instead of, say, 8 byte loads? The reason is
+            // that this particular version of memcmp is likely to be called with tiny
+            // needles. That means that if we do 8 byte loads, then a higher proportion
+            // of memcmp calls will use the slower variant above. With that said, this
+            // is a hypothesis and is only loosely supported by benchmarks. There's
+            // likely some improvement that could be made here. The main thing here
+            // though is to optimize for latency, not throughput.
+
+            // SAFETY: The caller is responsible for ensuring the pointers we get are
+            // valid and readable for at least `n` bytes. We also do unaligned loads,
+            // so there's no need to ensure we're aligned. (This is justified by this
+            // routine being specifically for short strings.)
+            let xend = x.add(n.wrapping_sub(4));
+            let yend = y.add(n.wrapping_sub(4));
+            while x < xend {
+                let vx = x.cast::<u32>().read_unaligned();
+                let vy = y.cast::<u32>().read_unaligned();
+                if vx != vy {
+                    return false;
+                }
+                x = x.add(4);
+                y = y.add(4);
+            }
+            let vx = xend.cast::<u32>().read_unaligned();
+            let vy = yend.cast::<u32>().read_unaligned();
+            vx == vy
+        }
     }
-    let vx = xend.cast::<u32>().read_unaligned();
-    let vy = yend.cast::<u32>().read_unaligned();
-    vx == vy
 }
 
 #[cfg(test)]

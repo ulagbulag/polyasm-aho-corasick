@@ -28,8 +28,6 @@ use core::{
 pub(crate) trait Vector:
     Copy + Debug + Send + Sync + UnwindSafe + RefUnwindSafe
 {
-    /// The number of bits in the vector.
-    const BITS: usize;
     /// The number of bytes in the vector. That is, this is the size of the
     /// vector in memory.
     const BYTES: usize;
@@ -326,7 +324,6 @@ mod x86_64_ssse3 {
     use super::Vector;
 
     impl Vector for __m128i {
-        const BITS: usize = 128;
         const BYTES: usize = 16;
 
         #[inline(always)]
@@ -419,7 +416,6 @@ mod x86_64_avx2 {
     use super::{FatVector, Vector};
 
     impl Vector for __m256i {
-        const BITS: usize = 256;
         const BYTES: usize = 32;
 
         #[inline(always)]
@@ -607,7 +603,6 @@ mod aarch64_neon {
     use super::Vector;
 
     impl Vector for uint8x16_t {
-        const BITS: usize = 128;
         const BYTES: usize = 16;
 
         #[inline(always)]

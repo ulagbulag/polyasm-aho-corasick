@@ -51,6 +51,14 @@ logging = ["dep:log"]
 log = { version = "0.4.17", optional = true }
 memchr = { version = "2.4.0", default-features = false, optional = true }
 
+# The memory extension instruction set of PolyASM, whose comparison the packed
+# searchers of the PolyASM targets run.
+[target.'cfg(target_arch = "polyasm")'.dependencies]
+polyasm-plugin-memory = { path = "../../contrib/polyasm-plugin-memory" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_arch, values("polyasm"))'] }
+
 [dev-dependencies]
 doc-comment = "0.3.3"
 # fst = "0.4.5"
